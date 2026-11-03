@@ -1,0 +1,8 @@
+NFS_DB_PATH = "nfs-db"
+INSERT_STAGING_PATH = "insert-staging"
+INDEXES_PATH = "indexes"
+ROWS_PATH = "rows"
+DELETED_ROWS_PATH = "deleted-rows"
+ID_COLUMN_NAME = "id"
+CURRENT_TRANSACTION_EXTENSION = ".current_transaction"
+FIELDS_PATH = "fields"
