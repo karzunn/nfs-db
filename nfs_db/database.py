@@ -1,7 +1,8 @@
 from pathlib import Path
 
 from .constants import NFS_DB_PATH
-from .table import table, table_info
+from .table.table import table
+from .table.table_info import table_info
 
 
 class database:
