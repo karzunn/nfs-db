@@ -3,6 +3,7 @@ import os
 import shutil
 from uuid import uuid4
 from pathlib import Path
+from collections import defaultdict
 
 from ..constants import (
     STAGING_PATH,
@@ -13,6 +14,7 @@ from ..constants import (
     FIELDS_PATH
 )
 from .table_info import table_info
+from .transactions import insert_transaction, delete_transaction
 from ..utils import exec
 
 
@@ -31,9 +33,11 @@ class table:
         self.rows_path = self.path / ROWS_PATH
         self.rows_path.mkdir(parents=True, exist_ok=True)
 
-    def _validate_data(self, data: dict):
+
+    def _validate(self, data: dict):
         if ID_COLUMN_NAME not in data:
             data[ID_COLUMN_NAME] = str(uuid4())
+
         for col in self.info.columns.values():
             if col.name not in data:
                 raise ValueError(f"Missing value for column '{col.name}'")
@@ -43,65 +47,33 @@ class table:
                     f"Expected {col.data_type.value.__name__}, got {type(data[col.name]).__name__}"
                 )
 
-    def _stage_insert(self, data: dict) -> tuple[Path, Path]:
-        row_id = data[ID_COLUMN_NAME]
-        transaction_id = str(uuid4())
-        staging_transaction_path = self.staging_path / transaction_id
-        staging_row_path = staging_transaction_path / row_id
-        (staging_row_path / transaction_id).mkdir(parents=True, exist_ok=True)
-
-        (staging_row_path / (transaction_id + "." + CURRENT_TRANSACTION_EXTENSION)).touch(exist_ok=True)
-
-        fields_path = staging_row_path / transaction_id / FIELDS_PATH
-        fields_path.mkdir(parents=True, exist_ok=True)
-
-        future_row_path = self.rows_path / row_id
-        for name, value in data.items():
-            (fields_path / name / str(value)).mkdir(parents=True, exist_ok=True)
-            symlink_path = (self.indexes_path / name / str(value) / transaction_id)
-            symlink_path.parent.mkdir(parents=True, exist_ok=True)
-            symlink_path.symlink_to(future_row_path, target_is_directory=True)
-
-        return staging_row_path, future_row_path
-
-    def _clean_up_staging(self, staging_path: Path, data: dict):
-        staging_parent = staging_path.parent
-        transaction_id = staging_parent.name
-        shutil.rmtree(staging_parent, ignore_errors=True)
-        for name, value in data.items():
-            (self.indexes_path / name / str(value) / transaction_id).unlink()
 
     def insert(self, data: dict) -> str:
-        self._validate_data(data)
-        staging_path, future_path = self._stage_insert(data)
+        self._validate(data)
+        insert_trans = insert_transaction(self.path, data)
+        try:
+            insert_trans.stage()
+            insert_trans.execute()
+            return data[ID_COLUMN_NAME]
+        except FileExistsError as err:
+            raise Exception(
+                f"Row with ID {data[ID_COLUMN_NAME]} already exists in table {self.table_info.table_name}"
+            ) from None
+        finally:
+            insert_trans.cleanup()
 
-        try: os.rename(staging_path, future_path)
-        except OSError as error:
-            self._clean_up_staging(staging_path, data)
-            if error.errno in (errno.EEXIST, errno.ENOTEMPTY):
-                raise FileExistsError(
-                    f"Row with ID '{data[ID_COLUMN_NAME]}' already exists in table '{self.info.table_name}'"
-                ) from None
-            raise
-
-        staging_path.parent.rmdir()
-        return data[ID_COLUMN_NAME]
-
-    def _stage_delete(self) -> Path:
-        transaction_id = str(uuid4())
-        return self.staging_path / transaction_id
 
     def delete(self, row_id: str):
-        deleted_path = self._stage_delete()
-        try: os.rename(self.rows_path / row_id, deleted_path)
-        except OSError as error:
-            if error.errno in (errno.ENOENT, errno.ENOTEMPTY):
-                raise FileNotFoundError(
-                    f"Row with ID '{row_id}' does not exist in table '{self.info.table_name}'"
-                ) from None
-            raise
+        delete_trans = delete_transaction(self.path, row_id)
+        try:
+            delete_trans.execute()
+        except FileNotFoundError as err:
+            raise Exception(
+                f"Row with ID {row_id} does not exist in table {self.table_info.table_name}"
+            ) from None
+        finally:
+            delete_trans.cleanup()
 
-        # TODO: remove symlink indexes
 
     def get(self, row_id: str) -> dict:
         row_path = self.rows_path / row_id
@@ -109,9 +81,18 @@ class table:
         paths = lines.splitlines()
 
         data = {}
+        current_transaction_id = None
+        for path in paths:
+            if path.endswith(CURRENT_TRANSACTION_EXTENSION):
+                current_transaction_id = Path(path).name.replace(CURRENT_TRANSACTION_EXTENSION, "")
+                break
+        else:
+            raise RuntimeError(f"Row with ID '{row_id}' is missing a current transaction marker.")
         for path in paths:
             relative_path = Path(path).relative_to(row_path)
-            if len(relative_path.parts) == 4:
+            is_value_dir = len(relative_path.parts) == 4
+            is_current_transaction = str(relative_path).startswith(current_transaction_id)
+            if is_value_dir and is_current_transaction:
                 _, _, column_name, column_value = relative_path.parts
                 column = self.info.columns[column_name]
                 if column.data_type.value == bool:
@@ -120,5 +101,28 @@ class table:
                     data[column_name] = column.data_type.value(column_value)
 
         return data
-        
-        
+
+    def get_where(self, column_name: str, value) -> list[dict]:
+        if column_name not in self.info.columns:
+            raise ValueError(f"Column '{column_name}' does not exist in table '{self.info.table_name}'")
+
+        index_path = self.indexes_path / column_name / str(value)
+        lines, _, _ = exec("find", index_path, "-ls")
+        paths = lines.splitlines()
+
+        rows = defaultdict(dict)
+        for path in paths:
+            relative_path = Path(path).relative_to(index_path)
+            print(relative_path.parts)
+            is_value_dir = len(relative_path.parts) == 5
+            if is_value_dir:
+                is_current_transaction = relative_path.parts[0] == relative_path.parts[1]
+                if is_current_transaction:
+                    if relative_path.parts[0] == relative_path.parts[1]:
+                        _, _, _, column_name, column_value = relative_path.parts
+                        column = self.info.columns[column_name]
+                        if column.data_type.value == bool:
+                            rows[relative_path.parts[0]][column_name] = column_value.lower() == "true"
+                        else:
+                            rows[relative_path.parts[0]][column_name] = column.data_type.value(column_value)
+        return list(rows.values())
