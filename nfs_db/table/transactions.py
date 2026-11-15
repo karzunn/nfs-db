@@ -1,5 +1,6 @@
 from uuid import uuid4
 from pathlib import Path
+import errno
 import os
 from abc import ABC, abstractmethod
 import shutil
@@ -13,6 +14,15 @@ from nfs_db.constants import (
 )
 
 
+def _delete_index(index_path: Path):
+    index_path.unlink(missing_ok=True)
+    try:
+        index_path.parent.rmdir()
+    except OSError as error:
+        if error.errno not in (errno.ENOENT, errno.ENOTEMPTY, errno.EEXIST):
+            raise
+
+
 class transaction(ABC):
 
     @abstractmethod
@@ -23,7 +33,6 @@ class transaction(ABC):
 
     @abstractmethod
     def cleanup(self): ...
-
 
 
 class insert_transaction(transaction):
@@ -48,7 +57,7 @@ class insert_transaction(transaction):
 
     def _delete_indexes(self):
         for name, value in self.data.items():
-            (self.indexes_path / name / str(value) / self.id).unlink(missing_ok=True)
+            _delete_index(self.indexes_path / name / str(value) / self.id)
 
     def _create_current_transaction_marker(self):
         (self.staging_row_path / (self.id + CURRENT_TRANSACTION_EXTENSION)).touch(exist_ok=True)
@@ -78,6 +87,87 @@ class insert_transaction(transaction):
             self._delete_indexes()
         shutil.rmtree(self.staging_row_path, ignore_errors=True)
         self.staging_row_path.parent.rmdir()
+
+
+class update_transaction(transaction):
+
+    def __init__(
+        self,
+        table_path: Path,
+        row_id: str,
+        existing_transaction_id: str,
+        data: dict,
+    ):
+        self.id = str(uuid4())
+        self.data = data
+        self.row_id = row_id
+        self.existing_transaction_id = existing_transaction_id
+        self.table_path = table_path
+        self.indexes_path = self.table_path / INDEXES_PATH
+        self.rows_path = self.table_path / ROWS_PATH
+        self.row_path = self.rows_path / self.row_id
+        self.transaction_path = self.row_path / self.id
+        self.executed = False
+
+    def _create_transaction_contents(self):
+        fields_path = self.transaction_path / FIELDS_PATH
+        for name, value in self.data.items():
+            (fields_path / name / str(value)).mkdir(parents=True, exist_ok=True)
+
+    def _delete_transaction_contents(self):
+        shutil.rmtree(self.transaction_path, ignore_errors=True)
+
+    def _create_new_indexes(self):
+        for name, value in self.data.items():
+            symlink_path = (self.indexes_path / name / str(value) / self.id)
+            symlink_path.parent.mkdir(parents=True, exist_ok=True)
+            symlink_path.symlink_to(self.row_path, target_is_directory=True)
+
+    def _delete_new_indexes(self):
+        for name, value in self.data.items():
+            _delete_index(self.indexes_path / name / str(value) / self.id)
+
+    def _delete_previous_indexes(self):
+        fields_path = (
+            self.row_path / self.existing_transaction_id / FIELDS_PATH
+        )
+        if not fields_path.is_dir():
+            return
+
+        for column_path in fields_path.iterdir():
+            for value_path in column_path.iterdir():
+                _delete_index(
+                    self.indexes_path
+                    / column_path.name
+                    / value_path.name
+                    / self.existing_transaction_id
+                )
+
+    def stage(self):
+        self._create_transaction_contents()
+        self._create_new_indexes()
+
+    def execute(self):
+        existing_transaction_marker = (
+            self.row_path
+            / f"{self.existing_transaction_id}{CURRENT_TRANSACTION_EXTENSION}"
+        )
+        new_transaction_marker = (
+            self.row_path / f"{self.id}{CURRENT_TRANSACTION_EXTENSION}"
+        )
+        os.rename(existing_transaction_marker, new_transaction_marker)
+        self.executed = True
+
+    def cleanup(self):
+        if self.executed:
+            self._delete_previous_indexes()
+            shutil.rmtree(
+                self.row_path / self.existing_transaction_id,
+                ignore_errors=True,
+            )
+        else:
+            self._delete_new_indexes()
+            self._delete_transaction_contents()
 
 
 class delete_transaction(transaction):
@@ -115,7 +205,12 @@ class delete_transaction(transaction):
             raise FileNotFoundError(f"Fields for row with ID {self.row_id} do not exist")
         for column_path in fields_path.iterdir():
             for value_path in column_path.iterdir():
-                (self.indexes_path / column_path.name / value_path.name / current_transaction).unlink(missing_ok=True)
+                _delete_index(
+                    self.indexes_path
+                    / column_path.name
+                    / value_path.name
+                    / current_transaction
+                )
 
     def cleanup(self):
         self._delete_indexes()

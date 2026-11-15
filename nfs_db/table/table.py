@@ -1,9 +1,6 @@
-import errno
-import os
-import shutil
+from collections.abc import Callable
 from uuid import uuid4
 from pathlib import Path
-from collections import defaultdict
 
 from ..constants import (
     STAGING_PATH,
@@ -14,7 +11,7 @@ from ..constants import (
     FIELDS_PATH
 )
 from .table_info import table_info
-from .transactions import insert_transaction, delete_transaction
+from .transactions import insert_transaction, update_transaction, delete_transaction
 from ..utils import exec
 
 
@@ -63,19 +60,64 @@ class table:
             insert_trans.cleanup()
 
 
+    def update(self, row_id: str, edit: Callable[[dict], dict]) -> dict:
+        if not callable(edit):
+            raise TypeError("edit must be a callable that accepts and returns a row")
+
+        while True:
+            existing_transaction_id, row = self._get_row_snapshot(row_id)
+            updated_row = edit(row.copy())
+            if not isinstance(updated_row, dict):
+                raise TypeError("edit must return a row dictionary")
+            if updated_row.get(ID_COLUMN_NAME) != row_id:
+                raise ValueError(f"Row ID '{ID_COLUMN_NAME}' cannot be modified")
+            if set(updated_row) != set(self.info.columns):
+                raise ValueError("Updated row must contain exactly the table's columns")
+            self._validate(updated_row)
+
+            update_trans = update_transaction(
+                self.path,
+                row_id,
+                existing_transaction_id,
+                updated_row,
+            )
+            try:
+                update_trans.stage()
+                try:
+                    update_trans.execute()
+                except FileNotFoundError:
+                    continue
+            finally:
+                update_trans.cleanup()
+
+            return updated_row
+
+
     def delete(self, row_id: str):
         delete_trans = delete_transaction(self.path, row_id)
         try:
             delete_trans.execute()
         except FileNotFoundError as err:
             raise Exception(
-                f"Row with ID {row_id} does not exist in table {self.table_info.table_name}"
+                f"Row with ID {row_id} does not exist in table {self.info.table_name}"
             ) from None
         finally:
             delete_trans.cleanup()
 
 
+    def _convert_value(self, column_name: str, value: str):
+        column = self.info.columns[column_name]
+        if column.data_type.value == bool:
+            return value.lower() == "true"
+        return column.data_type.value(value)
+
+
     def get(self, row_id: str) -> dict:
+        _, row = self._get_row_snapshot(row_id)
+        return row
+
+
+    def _get_row_snapshot(self, row_id: str) -> tuple[str, dict]:
         row_path = self.rows_path / row_id
         lines, _, _ = exec("find", row_path)
         paths = lines.splitlines()
@@ -86,43 +128,42 @@ class table:
             if path.endswith(CURRENT_TRANSACTION_EXTENSION):
                 current_transaction_id = Path(path).name.replace(CURRENT_TRANSACTION_EXTENSION, "")
                 break
-        else:
-            raise RuntimeError(f"Row with ID '{row_id}' is missing a current transaction marker.")
+        if current_transaction_id is None:
+            raise RuntimeError(f"Row with ID '{row_id}' does not exist in table {self.info.table_name}")
+
         for path in paths:
             relative_path = Path(path).relative_to(row_path)
-            is_value_dir = len(relative_path.parts) == 4
-            is_current_transaction = str(relative_path).startswith(current_transaction_id)
-            if is_value_dir and is_current_transaction:
-                _, _, column_name, column_value = relative_path.parts
-                column = self.info.columns[column_name]
-                if column.data_type.value == bool:
-                    data[column_name] = column_value.lower() == "true"
-                else:
-                    data[column_name] = column.data_type.value(column_value)
+            parts = relative_path.parts
+            if len(parts) == 4 and parts[0] == current_transaction_id:
+                _, _, column_name, column_value = parts
+                data[column_name] = self._convert_value(column_name, column_value)
 
-        return data
+        return current_transaction_id, data
 
     def get_where(self, column_name: str, value) -> list[dict]:
         if column_name not in self.info.columns:
             raise ValueError(f"Column '{column_name}' does not exist in table '{self.info.table_name}'")
 
         index_path = self.indexes_path / column_name / str(value)
-        lines, _, _ = exec("find", index_path, "-ls")
-        paths = lines.splitlines()
-
-        rows = defaultdict(dict)
-        for path in paths:
+        lines, _, _ = exec("find", "-L", str(index_path))
+        matching_transactions = set()
+        rows = {}
+        for path in lines.splitlines():
             relative_path = Path(path).relative_to(index_path)
-            print(relative_path.parts)
-            is_value_dir = len(relative_path.parts) == 5
-            if is_value_dir:
-                is_current_transaction = relative_path.parts[0] == relative_path.parts[1]
-                if is_current_transaction:
-                    if relative_path.parts[0] == relative_path.parts[1]:
-                        _, _, _, column_name, column_value = relative_path.parts
-                        column = self.info.columns[column_name]
-                        if column.data_type.value == bool:
-                            rows[relative_path.parts[0]][column_name] = column_value.lower() == "true"
-                        else:
-                            rows[relative_path.parts[0]][column_name] = column.data_type.value(column_value)
-        return list(rows.values())
+            parts = relative_path.parts
+            if (
+                len(parts) == 2
+                and parts[1].endswith(CURRENT_TRANSACTION_EXTENSION)
+                and parts[0] == parts[1][:-len(CURRENT_TRANSACTION_EXTENSION)]
+            ):
+                matching_transactions.add(parts[0])
+            elif len(parts) == 5 and parts[1] == parts[0] and parts[2] == FIELDS_PATH:
+                index_transaction_id, _, _, field_name, field_value = parts
+                rows.setdefault(index_transaction_id, {})[field_name] = self._convert_value(
+                    field_name, field_value
+                )
+        return [
+            row
+            for index_transaction_id, row in rows.items()
+            if index_transaction_id in matching_transactions
+        ]
