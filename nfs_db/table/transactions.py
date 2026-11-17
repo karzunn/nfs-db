@@ -181,12 +181,14 @@ class delete_transaction(transaction):
         self.rows_path = self.table_path / ROWS_PATH
         self.row_path = self.rows_path / self.row_id
         self.deleted_path = self.staging_path / self.id
+        self.executed = False
 
     def stage(self): ...
 
     def execute(self):
         try: 
             os.rename(self.row_path, self.deleted_path)
+            self.executed = True
         except OSError as error:
             if error.errno in (errno.ENOENT, errno.ENOTEMPTY):
                 raise FileNotFoundError() from None
@@ -213,5 +215,7 @@ class delete_transaction(transaction):
                 )
 
     def cleanup(self):
+        if not self.executed:
+            return
         self._delete_indexes()
         shutil.rmtree(self.deleted_path, ignore_errors=True)

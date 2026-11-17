@@ -52,8 +52,8 @@ class table:
             insert_trans.stage()
             insert_trans.execute()
             return data[ID_COLUMN_NAME]
-        except FileExistsError as err:
-            raise Exception(
+        except FileExistsError:
+            raise FileExistsError(
                 f"Row with ID {data[ID_COLUMN_NAME]} already exists in table {self.spec.name}"
             ) from None
         finally:
@@ -97,9 +97,9 @@ class table:
         delete_trans = delete_transaction(self.path, row_id)
         try:
             delete_trans.execute()
-        except FileNotFoundError as err:
-            raise Exception(
-                f"Row with ID {row_id} does not exist in table {self.spec.table_name}"
+        except FileNotFoundError:
+            raise KeyError(
+                f"Row with ID {row_id} does not exist in table {self.spec.name}"
             ) from None
         finally:
             delete_trans.cleanup()
@@ -122,6 +122,9 @@ class table:
         lines, _, _ = exec("find", row_path)
         paths = lines.splitlines()
 
+        if not paths:
+            raise KeyError(f"Row with ID '{row_id}' does not exist")
+
         data = {}
         current_transaction_id = None
         for path in paths:
@@ -129,7 +132,9 @@ class table:
                 current_transaction_id = Path(path).name.replace(CURRENT_TRANSACTION_EXTENSION, "")
                 break
         if current_transaction_id is None:
-            raise RuntimeError(f"Row with ID '{row_id}' does not exist in table {self.spec.table_name}")
+            raise RuntimeError(
+                f"Row with ID '{row_id}' is missing a current transaction marker."
+            )
 
         for path in paths:
             relative_path = Path(path).relative_to(row_path)
@@ -142,7 +147,9 @@ class table:
 
     def get_where(self, column_name: str, value) -> list[dict]:
         if column_name not in self.spec.columns:
-            raise ValueError(f"Column '{column_name}' does not exist in table '{self.spec.table_name}'")
+            raise ValueError(
+                f"Column '{column_name}' does not exist in table '{self.spec.name}'"
+            )
 
         index_path = self.indexes_path / column_name / str(value)
         lines, _, _ = exec("find", "-L", str(index_path))
