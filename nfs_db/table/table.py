@@ -10,16 +10,16 @@ from ..constants import (
     CURRENT_TRANSACTION_EXTENSION,
     FIELDS_PATH
 )
-from .table_info import table_info
+from .table_spec import table_spec
 from .transactions import insert_transaction, update_transaction, delete_transaction
 from ..utils import exec
 
 
 class table:
 
-    def __init__(self, db_path: Path, table_info: table_info):
-        self.info = table_info
-        self.path = db_path / table_info.identifier
+    def __init__(self, db_path: Path, table_spec: table_spec):
+        self.spec = table_spec
+        self.path = db_path / table_spec.identifier
 
         self.staging_path = self.path / STAGING_PATH
         self.staging_path.mkdir(parents=True, exist_ok=True)
@@ -35,7 +35,7 @@ class table:
         if ID_COLUMN_NAME not in data:
             data[ID_COLUMN_NAME] = str(uuid4())
 
-        for col in self.info.columns.values():
+        for col in self.spec.columns.values():
             if col.name not in data:
                 raise ValueError(f"Missing value for column '{col.name}'")
             if not isinstance(data[col.name], col.data_type.value):
@@ -54,7 +54,7 @@ class table:
             return data[ID_COLUMN_NAME]
         except FileExistsError as err:
             raise Exception(
-                f"Row with ID {data[ID_COLUMN_NAME]} already exists in table {self.table_info.table_name}"
+                f"Row with ID {data[ID_COLUMN_NAME]} already exists in table {self.spec.name}"
             ) from None
         finally:
             insert_trans.cleanup()
@@ -71,7 +71,7 @@ class table:
                 raise TypeError("edit must return a row dictionary")
             if updated_row.get(ID_COLUMN_NAME) != row_id:
                 raise ValueError(f"Row ID '{ID_COLUMN_NAME}' cannot be modified")
-            if set(updated_row) != set(self.info.columns):
+            if set(updated_row) != set(self.spec.columns):
                 raise ValueError("Updated row must contain exactly the table's columns")
             self._validate(updated_row)
 
@@ -99,14 +99,14 @@ class table:
             delete_trans.execute()
         except FileNotFoundError as err:
             raise Exception(
-                f"Row with ID {row_id} does not exist in table {self.info.table_name}"
+                f"Row with ID {row_id} does not exist in table {self.spec.table_name}"
             ) from None
         finally:
             delete_trans.cleanup()
 
 
     def _convert_value(self, column_name: str, value: str):
-        column = self.info.columns[column_name]
+        column = self.spec.columns[column_name]
         if column.data_type.value == bool:
             return value.lower() == "true"
         return column.data_type.value(value)
@@ -129,7 +129,7 @@ class table:
                 current_transaction_id = Path(path).name.replace(CURRENT_TRANSACTION_EXTENSION, "")
                 break
         if current_transaction_id is None:
-            raise RuntimeError(f"Row with ID '{row_id}' does not exist in table {self.info.table_name}")
+            raise RuntimeError(f"Row with ID '{row_id}' does not exist in table {self.spec.table_name}")
 
         for path in paths:
             relative_path = Path(path).relative_to(row_path)
@@ -141,8 +141,8 @@ class table:
         return current_transaction_id, data
 
     def get_where(self, column_name: str, value) -> list[dict]:
-        if column_name not in self.info.columns:
-            raise ValueError(f"Column '{column_name}' does not exist in table '{self.info.table_name}'")
+        if column_name not in self.spec.columns:
+            raise ValueError(f"Column '{column_name}' does not exist in table '{self.spec.table_name}'")
 
         index_path = self.indexes_path / column_name / str(value)
         lines, _, _ = exec("find", "-L", str(index_path))

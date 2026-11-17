@@ -1,2 +1,2 @@
-from .nfs import nfs
-from .table.table_info import table_info, column_type
+from .database import database
+from .table.table_spec import table_spec, column_type
