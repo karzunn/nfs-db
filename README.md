@@ -20,3 +20,37 @@ nfs-db is best suited for:
 - Workloads where atomic operations matter more than raw throughput.
 
 It is not intended for large datasets, high-throughput workloads, or applications requiring the advanced capabilities of a traditional database.
+
+## Quickstart
+
+Create a users table:
+
+```python
+from nfs_db import column_type, database, table_spec
+
+spec = (
+    table_spec(name="users")
+    .add_column("name", column_type.STRING)
+    .add_column("number", column_type.INTEGER)
+    .add_column("is_active", column_type.BOOLEAN)
+)
+
+db = database("/nfs")
+users = db.table(spec)
+```
+
+Insert, retrieve, update, query, and delete rows:
+
+```python
+row_id = users.insert({
+    "name": "John",
+    "number": 7,
+    "is_active": True,
+})
+
+row = users.get(row_id)
+active_users = users.get_where("is_active", True)
+
+users.update(row_id, lambda row: {**row, "number": row["number"] + 1}) # Increment
+users.delete(row_id)
+```
