@@ -24,19 +24,20 @@ class column:
 
 
 class table_spec:
-    
-    def __init__(self, name: str):
+
+    def __init__(self, name: str, /, **columns: type):
         self.name = name
         self.columns = {}
         self.columns[ID_COLUMN_NAME] = column(ID_COLUMN_NAME, str)
 
-    def add_column(self, name: str, data_type: type) -> "table_spec":
-        if name in self.columns:
-            raise ValueError(f"Column '{name}' already exists in table '{self.name}'")
-        if data_type not in _COLUMN_TYPE_NAMES:
-            raise TypeError("Column type must be int, str, float, or bool")
-        self.columns[name] = column(name, data_type)
-        return self
+        for column_name, data_type in columns.items():
+            if column_name in self.columns:
+                raise ValueError(
+                    f"Column '{column_name}' already exists in table '{self.name}'"
+                )
+            if data_type not in _COLUMN_TYPE_NAMES:
+                raise TypeError("Column type must be int, str, float, or bool")
+            self.columns[column_name] = column(column_name, data_type)
 
     @property
     def identifier(self):

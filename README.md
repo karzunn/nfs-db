@@ -28,14 +28,8 @@ Create a users table:
 ```python
 from nfs_db import database, table_spec
 
-spec = (
-    table_spec(name="users")
-    .add_column("name", str)
-    .add_column("number", int)
-    .add_column("is_active", bool)
-)
-
 db = database("/mnt/nfs")
+spec = table_spec("users", name=str, number=int, is_active=bool)
 users = db.table(spec)
 ```
 
