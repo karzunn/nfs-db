@@ -25,6 +25,12 @@ class TableUpdateTests(DatabaseTestCase):
                 lambda row: {**row, "number": "eight"},
             )
 
+        with self.assertRaisesRegex(TypeError, "Expected int, got bool"):
+            self.table.update(
+                self.row_id,
+                lambda row: {**row, "number": True},
+            )
+
     def test_update_accepts_a_callback_returning_all_correct_fields(self):
         def edit(row):
             row.update(name="Grace", number=8, active=False)

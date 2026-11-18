@@ -1,15 +1,15 @@
-import enum
 import hashlib
 import json
 
 from ..constants import ID_COLUMN_NAME
 
 
-class column_type(enum.Enum):
-    INTEGER = int
-    STRING = str
-    FLOAT = float
-    BOOLEAN = bool
+_COLUMN_TYPE_NAMES = {
+    int: "INTEGER",
+    str: "STRING",
+    float: "FLOAT",
+    bool: "BOOLEAN",
+}
 
 
 class column:
@@ -17,7 +17,7 @@ class column:
     def __init__(
         self,
         name: str,
-        data_type: column_type,
+        data_type: type,
     ):
         self.name = name
         self.data_type = data_type
@@ -28,11 +28,13 @@ class table_spec:
     def __init__(self, name: str):
         self.name = name
         self.columns = {}
-        self.columns[ID_COLUMN_NAME] = column(ID_COLUMN_NAME, column_type.STRING)
+        self.columns[ID_COLUMN_NAME] = column(ID_COLUMN_NAME, str)
 
-    def add_column(self, name: str, data_type: column_type) -> "table_info":
+    def add_column(self, name: str, data_type: type) -> "table_spec":
         if name in self.columns:
             raise ValueError(f"Column '{name}' already exists in table '{self.name}'")
+        if data_type not in _COLUMN_TYPE_NAMES:
+            raise TypeError("Column type must be int, str, float, or bool")
         self.columns[name] = column(name, data_type)
         return self
 
@@ -41,7 +43,8 @@ class table_spec:
         definition = {
             "name": self.name,
             "columns": [
-                (col.name, col.data_type.name) for col in self.columns.values()
+                (col.name, _COLUMN_TYPE_NAMES[col.data_type])
+                for col in self.columns.values()
             ],
         }
         serialized = json.dumps(

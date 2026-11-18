@@ -38,10 +38,10 @@ class table:
         for col in self.spec.columns.values():
             if col.name not in data:
                 raise ValueError(f"Missing value for column '{col.name}'")
-            if not isinstance(data[col.name], col.data_type.value):
+            if type(data[col.name]) is not col.data_type:
                 raise TypeError(
                     f"Incorrect type for column '{col.name}'. "
-                    f"Expected {col.data_type.value.__name__}, got {type(data[col.name]).__name__}"
+                    f"Expected {col.data_type.__name__}, got {type(data[col.name]).__name__}"
                 )
 
 
@@ -107,9 +107,9 @@ class table:
 
     def _convert_value(self, column_name: str, value: str):
         column = self.spec.columns[column_name]
-        if column.data_type.value == bool:
+        if column.data_type is bool:
             return value.lower() == "true"
-        return column.data_type.value(value)
+        return column.data_type(value)
 
 
     def get(self, row_id: str) -> dict:

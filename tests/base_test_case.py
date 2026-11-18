@@ -1,7 +1,7 @@
 import tempfile
 import unittest
 
-from nfs_db import column_type, database, table_spec
+from nfs_db import database, table_spec
 
 
 class DatabaseTestCase(unittest.TestCase):
@@ -11,9 +11,9 @@ class DatabaseTestCase(unittest.TestCase):
         self.db = database(self.temporary_directory.name)
         self.spec = (
             table_spec("users")
-            .add_column("name", column_type.STRING)
-            .add_column("number", column_type.INTEGER)
-            .add_column("active", column_type.BOOLEAN)
+            .add_column("name", str)
+            .add_column("number", int)
+            .add_column("active", bool)
         )
         self.table = self.db.table(self.spec)
 

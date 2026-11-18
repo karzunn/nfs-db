@@ -26,16 +26,16 @@ It is not intended for large datasets, high-throughput workloads, or application
 Create a users table:
 
 ```python
-from nfs_db import column_type, database, table_spec
+from nfs_db import database, table_spec
 
 spec = (
     table_spec(name="users")
-    .add_column("name", column_type.STRING)
-    .add_column("number", column_type.INTEGER)
-    .add_column("is_active", column_type.BOOLEAN)
+    .add_column("name", str)
+    .add_column("number", int)
+    .add_column("is_active", bool)
 )
 
-db = database("/nfs")
+db = database("/mnt/nfs")
 users = db.table(spec)
 ```
 
@@ -51,6 +51,10 @@ row_id = users.insert({
 row = users.get(row_id)
 active_users = users.get_where("is_active", True)
 
-users.update(row_id, lambda row: {**row, "number": row["number"] + 1}) # Increment
+users.update(row_id, lambda row: {**row, "number": row["number"] + 1})
 users.delete(row_id)
 ```
+
+The update callback must return a row dictionary with the table's existing
+fields, and it must not change `id`. If another update wins a race, the callback
+may run again against the latest row, so avoid external side effects in it.

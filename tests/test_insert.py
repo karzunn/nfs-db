@@ -9,6 +9,9 @@ class TableInsertTests(DatabaseTestCase):
         with self.assertRaisesRegex(TypeError, "Incorrect type for column 'number'"):
             self.table.insert({"name": "Ada", "number": "seven", "active": True})
 
+        with self.assertRaisesRegex(TypeError, "Expected int, got bool"):
+            self.table.insert({"name": "Ada", "number": True, "active": True})
+
         self.assertEqual(list(self.table.staging_path.iterdir()), [])
         self.assertEqual(list(self.table.rows_path.iterdir()), [])
 
