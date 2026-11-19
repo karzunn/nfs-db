@@ -51,7 +51,7 @@ row_id = users.insert({
 row = users.get(row_id)
 active_users = users.get_where("is_active", True)
 
-users.update(row_id, lambda row: {**row, "number": row["number"] + 1})
+updated_row = users.update(row_id, lambda row: {**row, "number": row["number"] + 1})
 users.delete(row_id)
 ```
 
