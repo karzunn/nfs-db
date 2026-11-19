@@ -2,6 +2,12 @@
 
 # nfs-db
 
+[![PyPI version](https://img.shields.io/pypi/v/nfs-db)](https://pypi.org/project/nfs-db/)
+[![Python versions](https://img.shields.io/pypi/pyversions/nfs-db)](https://pypi.org/project/nfs-db/)
+[![License](https://img.shields.io/github/license/karzunn/nfs-db)](LICENSE)
+[![Unit tests](https://github.com/karzunn/nfs-db/actions/workflows/unit-tests.yml/badge.svg?branch=main)](https://github.com/karzunn/nfs-db/actions/workflows/unit-tests.yml)
+[![Coverage gate](https://img.shields.io/badge/coverage%20gate-100%25-brightgreen)](https://github.com/karzunn/nfs-db/actions/workflows/unit-tests.yml)
+
 nfs-db is *not* a database engine. It is a lightweight Python interface that lets you interact with an existing NFS server through familiar database-style operations.
 
 ### Why nfs-db?
