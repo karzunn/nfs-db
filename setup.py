@@ -1,13 +1,16 @@
 from setuptools import setup, find_packages
+from runpy import run_path
 
 with open("README.md", "r", encoding="utf-8") as fh:
     long_description = fh.read()
 with open("requirements.txt", "r", encoding="utf-8") as fh:
     requirements = fh.read().splitlines()
 
+version = run_path("nfs_db/_version.py")["__version__"]
+
 setup(
     name = 'nfs-db',
-    version = '1.0.0',
+    version = version,
     author = "Carson O'Ffill",
     author_email = 'offillcarson@gmail.com',
     license = 'MIT',
@@ -15,8 +18,7 @@ setup(
     long_description = long_description,
     long_description_content_type = "text/markdown",
     url = 'https://github.com/karzunn/nfs-db',
-    py_modules = ['nfs_db'],
-    packages = find_packages(),
+    packages = find_packages(exclude=("tests", "tests.*")),
     install_requires = requirements,
     python_requires='>=3.9',
     classifiers=[
