@@ -119,23 +119,45 @@ class table:
 
     def _get_row_snapshot(self, row_id: str) -> tuple[str, dict]:
         row_path = self.rows_path / row_id
-        lines, _, _ = exec("find", row_path)
+        lines, _, _ = exec(
+            "find",
+            row_path,
+            "(",
+            "-type",
+            "d",
+            "-o",
+            "-type",
+            "f",
+            "-name",
+            f"*{CURRENT_TRANSACTION_EXTENSION}",
+            ")",
+        )
         paths = lines.splitlines()
 
         if not paths:
             raise KeyError(f"Row with ID '{row_id}' does not exist")
 
-        data = {}
-        current_transaction_id = None
-        for path in paths:
-            if path.endswith(CURRENT_TRANSACTION_EXTENSION):
-                current_transaction_id = Path(path).name.replace(CURRENT_TRANSACTION_EXTENSION, "")
-                break
+        transaction_ids = {
+            relative[0]
+            for path in paths
+            if len(relative := Path(path).relative_to(row_path).parts) == 1
+        }
+        current_transaction_id = next(
+            (
+                Path(path).name.removesuffix(CURRENT_TRANSACTION_EXTENSION)
+                for path in paths
+                if path.endswith(CURRENT_TRANSACTION_EXTENSION)
+                and Path(path).name.removesuffix(CURRENT_TRANSACTION_EXTENSION)
+                in transaction_ids
+            ),
+            None,
+        )
         if current_transaction_id is None:
             raise RuntimeError(
                 f"Row with ID '{row_id}' is missing a current transaction marker."
             )
 
+        data = {}
         for path in paths:
             relative_path = Path(path).relative_to(row_path)
             parts = relative_path.parts
@@ -152,7 +174,20 @@ class table:
             )
 
         index_path = self.indexes_path / column_name / str(value)
-        lines, _, _ = exec("find", "-L", str(index_path))
+        lines, _, _ = exec(
+            "find",
+            "-L",
+            str(index_path),
+            "(",
+            "-type",
+            "d",
+            "-o",
+            "-type",
+            "f",
+            "-name",
+            f"*{CURRENT_TRANSACTION_EXTENSION}",
+            ")",
+        )
         matching_transactions = set()
         rows = {}
         for path in lines.splitlines():

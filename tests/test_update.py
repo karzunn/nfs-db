@@ -67,6 +67,9 @@ class TableUpdateTests(DatabaseTestCase):
 
     def test_successful_update_removes_old_indexes_and_transaction_files(self):
         old_transaction_id, _ = self.table._get_row_snapshot(self.row_id)
+        fields_path = self.row_path / old_transaction_id / "fields"
+        (fields_path / "._name").touch()
+        (fields_path / "name" / "._Ada").touch()
 
         updated = self.table.update(
             self.row_id,

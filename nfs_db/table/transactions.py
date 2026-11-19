@@ -23,6 +23,21 @@ def _delete_index(index_path: Path):
             raise
 
 
+def _delete_field_indexes(fields_path: Path, indexes_path: Path, transaction_id: str):
+    for column_path in fields_path.iterdir():
+        if not column_path.is_dir():
+            continue
+        for value_path in column_path.iterdir():
+            if not value_path.is_dir():
+                continue
+            _delete_index(
+                indexes_path
+                / column_path.name
+                / value_path.name
+                / transaction_id
+            )
+
+
 class transaction(ABC):
 
     @abstractmethod
@@ -134,14 +149,11 @@ class update_transaction(transaction):
         if not fields_path.is_dir():
             return
 
-        for column_path in fields_path.iterdir():
-            for value_path in column_path.iterdir():
-                _delete_index(
-                    self.indexes_path
-                    / column_path.name
-                    / value_path.name
-                    / self.existing_transaction_id
-                )
+        _delete_field_indexes(
+            fields_path,
+            self.indexes_path,
+            self.existing_transaction_id,
+        )
 
     def stage(self):
         self._create_transaction_contents()
@@ -195,8 +207,20 @@ class delete_transaction(transaction):
             raise
 
     def _delete_indexes(self):
+        if not self.deleted_path.is_dir():
+            raise FileNotFoundError(f"Row with ID {self.row_id} does not exist")
+        transaction_ids = {
+            path.name for path in self.deleted_path.iterdir() if path.is_dir()
+        }
         current_marker = next(
-            self.deleted_path.glob(f"*{CURRENT_TRANSACTION_EXTENSION}"),
+            (
+                path
+                for path in self.deleted_path.glob(
+                    f"*{CURRENT_TRANSACTION_EXTENSION}"
+                )
+                if path.name.removesuffix(CURRENT_TRANSACTION_EXTENSION)
+                in transaction_ids
+            ),
             None,
         )
         if current_marker is None:
@@ -205,14 +229,7 @@ class delete_transaction(transaction):
         fields_path = self.deleted_path / current_transaction / FIELDS_PATH
         if not fields_path.is_dir():
             raise FileNotFoundError(f"Fields for row with ID {self.row_id} do not exist")
-        for column_path in fields_path.iterdir():
-            for value_path in column_path.iterdir():
-                _delete_index(
-                    self.indexes_path
-                    / column_path.name
-                    / value_path.name
-                    / current_transaction
-                )
+        _delete_field_indexes(fields_path, self.indexes_path, current_transaction)
 
     def cleanup(self):
         if not self.executed:

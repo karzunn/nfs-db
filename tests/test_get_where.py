@@ -15,6 +15,21 @@ class TableGetWhereTests(DatabaseTestCase):
         )
         self.assertTrue(all(row["name"] == "Ada" for row in matches))
 
+    def test_get_where_ignores_nfs_metadata_files(self):
+        row_id = self.insert_row()
+        transaction_id, _ = self.table._get_row_snapshot(row_id)
+        metadata_path = (
+            self.table.rows_path
+            / row_id
+            / transaction_id
+            / "fields"
+            / "number"
+            / "._7"
+        )
+        metadata_path.touch()
+
+        self.assertEqual(self.table.get_where("number", 7)[0]["id"], row_id)
+
     def test_get_where_tracks_insert_update_and_delete(self):
         first_id = self.insert_row(name="same", row_id="first")
         second_id = self.insert_row(name="same", row_id="second")

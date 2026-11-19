@@ -48,6 +48,10 @@ class TransactionCleanupTests(unittest.TestCase):
         transaction_id = "transaction"
         delete.deleted_path = self.root / "deleted"
         delete.deleted_path.mkdir()
+        with self.assertRaisesRegex(FileNotFoundError, "does not exist"):
+            delete._delete_indexes()
+
+        (delete.deleted_path / transaction_id).mkdir()
         (delete.deleted_path / f"{transaction_id}{CURRENT_TRANSACTION_EXTENSION}").touch()
         with self.assertRaisesRegex(FileNotFoundError, "Fields for row"):
             delete._delete_indexes()
